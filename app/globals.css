@@ -1,0 +1,36 @@
+/* Admin portal design tokens — "Cool" theme.
+   Deliberately theme-agnostic variable names (not --violet, --paper etc.)
+   so swapping to a different palette later is a one-file edit here,
+   not a hunt across every admin page's inline styles. */
+:root {
+  --admin-nav-bg: #0B1220;
+  --admin-nav-text: #F1F4F9;
+  --admin-nav-text-muted: #8A97AC;
+  --admin-nav-accent: #4C8DF5;
+
+  --admin-bg: #F1F4F9;
+  --admin-card-bg: #FFFFFF;
+  --admin-border: #E3E9F1;
+  --admin-table-header-bg: #E9EEF6;
+
+  --admin-text: #0B1220;
+  --admin-text-muted: #57657A;
+
+  --admin-accent: #2563C7;
+  --admin-accent-hover: #1D4E8F;
+  --admin-pill-bg: #DCE8FB;
+  --admin-pill-text: #1D4E8F;
+  --admin-pill-bg-neutral: #E9EEF6;
+  --admin-pill-text-neutral: #57657A;
+
+  --admin-danger: #C0392B;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Hanken Grotesk", system-ui, sans-serif;
+  background: var(--admin-bg);
+  color: var(--admin-text);
+}

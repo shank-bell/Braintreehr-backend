@@ -1,0 +1,30 @@
+# Pings the Supabase project every 3 days so it never hits the free tier's
+# 7-day inactivity auto-pause. Only needed pre-launch — once the site is
+# live, real traffic does this naturally and this workflow becomes a no-op
+# safety net you can leave in place or remove.
+#
+# Setup: add SUPABASE_URL and SUPABASE_ANON_KEY as repo secrets
+# (Settings -> Secrets and variables -> Actions -> New repository secret) —
+# same values as in .env.local, safe to reuse since the anon key is
+# designed to be public-facing anyway.
+name: Keep Supabase project alive
+
+on:
+  schedule:
+    - cron: "0 3 */3 * *"   # every 3 days — comfortably inside the 7-day window
+  workflow_dispatch: {}      # lets you trigger it manually from the Actions tab too
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query the jobs table (counts as real DB activity)
+        run: |
+          status=$(curl -s -o /dev/null -w "%{http_code}" \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/jobs?select=id&limit=1" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}")
+          echo "Supabase responded with HTTP $status"
+          if [ "$status" -ge 400 ]; then
+            echo "::warning::Supabase ping got a $status — check the project isn't already paused, or that the secrets are set correctly."
+          fi
