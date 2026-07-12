@@ -1,10 +1,17 @@
-// Admin shell: nav + auth guard — design doc §7, §7.4.
-// Server Component so the redirect happens before any admin HTML ships,
-// not as a client-side flash-then-redirect.
+// NOTE: a custom /api/admin/login route now exists (added for the
+// SignIn.html cross-origin sign-in flow) — this contradicts the "no
+// custom login endpoint" comment in app/admin/login/page.tsx. That
+// comment is stale; Supabase still manages the session either way.
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createServerSupabaseClient } from "@/lib/supabase";
 
+async function logout() {
+  "use server";
+  const supabase = await createServerSupabaseClient();
+  await supabase.auth.signOut();
+  redirect("/admin/login");
+}
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createServerSupabaseClient();
   const {
@@ -57,6 +64,23 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         <span style={{ marginLeft: "auto", fontSize: 13, color: "var(--admin-nav-text-muted)" }}>
           Admin
         </span>
+        <form action={logout}>
+          <button
+            type="submit"
+            style={{
+              fontSize: 13,
+              color: "var(--admin-nav-text-muted)",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              textDecoration: "underline",
+              padding: 0,
+              fontFamily: "inherit",
+            }}
+          >
+            Log out
+          </button>
+        </form>
       </nav>
       <main style={{ padding: "24px" }}>{children}</main>
     </div>

@@ -28,6 +28,27 @@ function withCorsHeaders(response: NextResponse): NextResponse {
   return response;
 }
 
+// The admin login endpoint carries a session cookie, so unlike the public
+// routes above, it CANNOT use a wildcard origin — browsers refuse to honor
+// Access-Control-Allow-Origin: "*" on any request sent with credentials.
+// This must be an exact origin. Update it to match wherever SignIn.html is
+// actually served (Live Server default shown below), and again to the real
+// production frontend domain once both sides are deployed.
+const CREDENTIALED_ORIGIN = "http://localhost:5500";
+const CREDENTIALED_CORS_PATHS = ["/api/admin/login"];
+
+function isCredentialedCorsPath(pathname: string): boolean {
+  return CREDENTIALED_CORS_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
+}
+
+function withCredentialedCorsHeaders(response: NextResponse): NextResponse {
+  response.headers.set("Access-Control-Allow-Origin", CREDENTIALED_ORIGIN);
+  response.headers.set("Access-Control-Allow-Credentials", "true");
+  response.headers.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  response.headers.set("Access-Control-Allow-Headers", "Content-Type");
+  return response;
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -36,6 +57,9 @@ export async function middleware(request: NextRequest) {
   // expects a fast, header-only response — no session logic needed here.
   if (request.method === "OPTIONS" && isCorsPath(pathname)) {
     return withCorsHeaders(new NextResponse(null, { status: 204 }));
+  }
+  if (request.method === "OPTIONS" && isCredentialedCorsPath(pathname)) {
+    return withCredentialedCorsHeaders(new NextResponse(null, { status: 204 }));
   }
 
   let response = NextResponse.next({ request });
@@ -65,6 +89,9 @@ export async function middleware(request: NextRequest) {
 
   if (isCorsPath(pathname)) {
     response = withCorsHeaders(response);
+  }
+  if (isCredentialedCorsPath(pathname)) {
+    response = withCredentialedCorsHeaders(response);
   }
 
   return response;
