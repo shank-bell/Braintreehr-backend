@@ -54,7 +54,7 @@ export function getClientIp(headers: Headers): string {
   const forwarded = headers.get("x-forwarded-for");
   if (forwarded) {
     const parts = forwarded.split(",").map((p) => p.trim()).filter(Boolean);
-    if (parts.length) return parts[parts.length - 1]; // last = closest trusted hop
+    if (parts.length) return parts[parts.length - 1] ?? "unknown"; // last = closest trusted hop
   }
   return "unknown";
 }
