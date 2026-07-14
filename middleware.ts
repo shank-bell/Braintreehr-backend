@@ -10,7 +10,7 @@ import { NextResponse, type NextRequest } from "next/server";
 // routes carry no cookies/credentials, so a wildcard is not a session-
 // hijack risk, but it's still tighter to lock it down once there's a
 // real domain to lock it to.
-const ALLOWED_ORIGIN = "*";
+const ALLOWED_ORIGIN = process.env.NEXT_PUBLIC_SITE_URL || "*";
 
 // Only the public, unauthenticated routes the static frontend actually
 // calls need CORS — admin routes are same-origin (called from the admin
@@ -34,7 +34,7 @@ function withCorsHeaders(response: NextResponse): NextResponse {
 // This must be an exact origin. Update it to match wherever SignIn.html is
 // actually served (Live Server default shown below), and again to the real
 // production frontend domain once both sides are deployed.
-const CREDENTIALED_ORIGIN = "http://localhost:5500";
+const CREDENTIALED_ORIGIN = process.env.FRONTEND_ORIGIN || "http://localhost:5500";
 const CREDENTIALED_CORS_PATHS = ["/api/admin/login"];
 
 function isCredentialedCorsPath(pathname: string): boolean {

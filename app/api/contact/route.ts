@@ -1,23 +1,28 @@
 // POST /api/contact — contact / hiring-lead submission
-// Design doc §5.1, §5.3, §11.3
 import { NextRequest, NextResponse } from "next/server";
 import { contactSchema } from "@/lib/validation";
 import { allowRequest, getClientIp, hashIp } from "@/lib/rateLimit";
+import { verifyTurnstile } from "@/lib/turnstile";
 import { sendContactAcknowledgement, sendInternalContactAlert } from "@/lib/email";
 import { getServiceClient } from "@/lib/supabase";
 
 export async function POST(req: NextRequest) {
   const ipHash = hashIp(getClientIp(req.headers));
-  const allowed = await allowRequest(ipHash, "contact", 5, 600);
+  const allowed = await allowRequest(ipHash, "contact", 5, 600, true); // fail closed (#3)
   if (!allowed) {
     return NextResponse.json({ error: "Too many requests, try again shortly." }, { status: 429 });
   }
 
-  let body: unknown;
+  let body: any;
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const humanOk = await verifyTurnstile(body?.captchaToken, getClientIp(req.headers));
+  if (!humanOk) {
+    return NextResponse.json({ error: "Verification failed. Please try again." }, { status: 403 });
   }
 
   const parsed = contactSchema.safeParse(body);
@@ -30,7 +35,7 @@ export async function POST(req: NextRequest) {
   const input = parsed.data;
 
   if (input.company_website) {
-    return NextResponse.json({ ok: true }); // honeypot, §5.4
+    return NextResponse.json({ ok: true }); // honeypot
   }
 
   const supabase = getServiceClient();

@@ -32,7 +32,11 @@ export async function GET(req: NextRequest) {
   if (jobId) query = query.eq("job_id", jobId);
   if (cursor) {
     const [submittedAt, id] = cursor.split("_");
-    if (submittedAt && id) {
+     // Validate shape before interpolating into the PostgREST filter (#8):
+    // submittedAt = ISO timestamp, id = integer.
+    const tsOk = /^[\d:.TZ+\- ]{10,40}$/.test(submittedAt ?? "");
+    const idOk = /^\d+$/.test(id ?? "");
+    if (submittedAt && id && tsOk && idOk) {
       // Keyset pagination (§10.1) — strictly older than the last row seen.
       query = query.or(
         `submitted_at.lt.${submittedAt},and(submitted_at.eq.${submittedAt},id.lt.${id})`

@@ -4,13 +4,8 @@ import { ALLOWED_RESUME_EXTENSIONS, MAX_RESUME_BYTES } from "./validation";
 
 const RESUME_BUCKET = "resumes";
 
-// First bytes of each allowed file type — used to verify a file's real
-// content, not just its declared extension/content-type (§6.2, §11.3).
 const MAGIC_BYTES: Record<string, number[][]> = {
   pdf: [[0x25, 0x50, 0x44, 0x46]], // %PDF
-  // .doc (legacy binary OLE format) and .docx (a zip) have different
-  // signatures; docx is far more common today but both are accepted
-  // since the form's accept attribute allows both.
   doc: [[0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]],
   docx: [[0x50, 0x4b, 0x03, 0x04]], // PK.. (zip)
 };
@@ -21,20 +16,21 @@ function getExtension(fileName: string): string {
 }
 
 /**
- * Issues a short-lived signed upload URL for a résumé. The browser
- * uploads directly to Storage with this URL — the file never passes
- * through a Next.js route handler body, which has a 4.5MB hard limit
- * well below the 10MB résumé cap already advertised on Apply.html (§6.1).
+ * Issues a short-lived signed upload URL for a résumé AND records the
+ * generated path bound to the caller's IP hash, so /api/apply can later
+ * confirm the path was one we actually issued (and consume it once).
  */
-export async function createResumeUploadUrl(fileName: string, contentType: string) {
+export async function createResumeUploadUrl(
+  fileName: string,
+  _contentType: string,
+  ipHash: string
+) {
   const ext = getExtension(fileName);
   if (!ALLOWED_RESUME_EXTENSIONS.includes(`.${ext}` as (typeof ALLOWED_RESUME_EXTENSIONS)[number])) {
     throw new Error(`Unsupported file type: .${ext}`);
   }
 
   const supabase = getServiceClient();
-  // Path includes a random-ish prefix (timestamp) so two candidates
-  // uploading "Resume.pdf" on the same day never collide.
   const path = `${Date.now()}-${crypto.randomUUID()}-${fileName}`;
 
   const { data, error } = await supabase.storage
@@ -45,13 +41,39 @@ export async function createResumeUploadUrl(fileName: string, contentType: strin
     throw new Error(`Failed to create upload URL: ${error?.message ?? "unknown error"}`);
   }
 
+  // Record the path we handed out, bound to this IP. (#1)
+  const { error: trackErr } = await (supabase as any)
+    .from("issued_uploads")
+    .insert({ path, ip_hash: ipHash });
+  if (trackErr) {
+    throw new Error(`Failed to record upload token: ${trackErr.message}`);
+  }
+
   return { signedUrl: data.signedUrl, token: data.token, path };
 }
 
 /**
- * Short-lived signed GET URL for admin résumé review (§6.3, §11.5).
- * Never a public/permanent URL — expires in 5 minutes.
+ * Verify `path` was issued by us to this IP, and consume it (one-time).
+ * Returns false if it wasn't issued, was already used, or IP doesn't match.
  */
+export async function consumeIssuedUpload(path: string, ipHash: string): Promise<boolean> {
+  const supabase = getServiceClient();
+  const { data, error } = await (supabase as any)
+    .from("issued_uploads")
+    .delete()
+    .eq("path", path)
+    .eq("ip_hash", ipHash)
+    .select("path")
+    .maybeSingle();
+
+  if (error) {
+    console.error("consumeIssuedUpload error:", error.message);
+    return false;
+  }
+  return !!data;
+}
+
+/** Short-lived signed GET URL for admin résumé review (§6.3, §11.5). */
 export async function createResumeDownloadUrl(path: string) {
   const supabase = getServiceClient();
   const { data, error } = await supabase.storage
@@ -61,24 +83,16 @@ export async function createResumeDownloadUrl(path: string) {
   if (error || !data) {
     throw new Error(`Failed to create download URL: ${error?.message ?? "unknown error"}`);
   }
-
   return data.signedUrl;
 }
 
-/**
- * Downloads the first bytes of an uploaded résumé and checks them
- * against known file signatures (§6.2) — the declared content-type is
- * never trusted, since it's trivial for a client to lie about it.
- */
 export async function verifyResumeMagicBytes(path: string): Promise<boolean> {
   const supabase = getServiceClient();
   const { data, error } = await supabase.storage.from(RESUME_BUCKET).download(path);
-
   if (error || !data) return false;
 
   const buf = new Uint8Array(await data.slice(0, 8).arrayBuffer());
-  const ext = getExtension(path.split("-").slice(2).join("-")); // strip our timestamp-uuid prefix
-
+  const ext = getExtension(path.split("-").slice(2).join("-"));
   const signatures = MAGIC_BYTES[ext === "doc" ? "doc" : ext === "docx" ? "docx" : "pdf"] ?? [];
   return signatures.some((sig) => sig.every((byte, i) => buf[i] === byte));
 }

@@ -12,7 +12,7 @@ import { createBrowserSupabaseClient } from "@/lib/supabase-browser";
 // window.location.origin still depends on whatever port the browser
 // happens to be on, which once caused a reset link to get mailed with a
 // stale port baked in. Update this to the real domain before deploying.
-const SITE_URL = "http://localhost:3000";
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");

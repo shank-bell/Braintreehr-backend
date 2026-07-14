@@ -26,7 +26,18 @@ export const applySchema = z.object({
   years_experience: z.string().trim().max(40).optional(),
   linkedin_url: linkedinUrlSchema.optional(),
   notice_period: z.string().trim().max(40).optional(),
-  resume_path: z.string().trim().min(1, "Résumé upload is required"),
+  // Must match the exact shape createResumeUploadUrl() generates:
+  //   <epoch>-<uuid>-<filename>.<pdf|doc|docx>
+  // [^/\\] blocks path traversal; the prefix blocks pointing at arbitrary
+  // bucket objects. (#1)
+  resume_path: z
+    .string()
+    .trim()
+    .min(1, "Résumé upload is required")
+    .regex(
+      /^\d{10,}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-[^/\\]+\.(pdf|doc|docx)$/i,
+      "Invalid résumé reference"
+    ),
   resume_filename: z.string().trim().min(1),
   cover_note: z.string().trim().max(2000).optional(),
   // honeypot — real users never fill this in (§5.4); if present, the

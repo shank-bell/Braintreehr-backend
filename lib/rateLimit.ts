@@ -1,29 +1,26 @@
 // Postgres-backed rate limiting — design doc §5.4, §9.5, §10.1, §10.4.
-// Backs onto the rate_limit_hits table (0001_init.sql). Uses the
-// service-role client since this runs before we know who the caller is
-// (public routes, no session yet) — RLS on this table denies everyone
-// but service-role anyway (0002_rls_policies.sql).
 import { createHash } from "crypto";
 import { getServiceClient } from "./supabase";
 
 /**
- * Returns true if the request is allowed, false if it should be rejected
- * with 429. `windowSec` buckets hits into fixed windows (not a true
- * sliding window) — simple, and plenty accurate at this traffic volume.
+ * Returns true if allowed, false if it should be rejected with 429.
+ * `failClosed`: when the DB call itself errors, reject instead of allow.
+ * Use failClosed=true on routes where an unbounded flood is expensive
+ * (they send email); leave it false where availability matters more
+ * (e.g. admin login shouldn't lock out during a DB blip).
  */
 export async function allowRequest(
   ipHash: string,
   route: string,
   limit = 5,
-  windowSec = 600
+  windowSec = 600,
+  failClosed = false
 ): Promise<boolean> {
   const supabase = getServiceClient();
   const windowStart = new Date(
     Math.floor(Date.now() / (windowSec * 1000)) * windowSec * 1000
   ).toISOString();
 
-  // Upsert-and-increment in one round trip: try to insert count=1, and on
-  // conflict (same ip_hash/route/window_start already exists) bump count.
   const { data, error } = await supabase.rpc("increment_rate_limit", {
     p_ip_hash: ipHash,
     p_route: route,
@@ -31,11 +28,8 @@ export async function allowRequest(
   });
 
   if (error) {
-    // Fail open rather than closed — a rate-limiter bug should not be
-    // able to take down the apply/contact forms entirely. Logged so it's
-    // visible, not silently swallowed.
     console.error("rateLimit.allowRequest error:", error.message);
-    return true;
+    return !failClosed; // fail open unless caller asked otherwise
   }
 
   const count = data as number;
@@ -48,13 +42,19 @@ export function hashIp(ip: string): string {
 }
 
 /**
- * Pulls the caller's IP out of standard proxy headers (Vercel sets
- * x-forwarded-for). Falls back to a constant so local dev without a
- * proxy in front doesn't crash — rate limiting just becomes a no-op
- * per-machine bucket in that case, which is fine for local testing.
+ * Resolve the caller's IP. On Vercel, `x-real-ip` is set by the platform
+ * to the true edge client IP and is NOT client-appendable — prefer it.
+ * `x-forwarded-for` is client-controllable at the head of the list, so if
+ * we fall back to it we take the LAST hop, not the first.
  */
 export function getClientIp(headers: Headers): string {
+  const realIp = headers.get("x-real-ip");
+  if (realIp) return realIp.trim();
+
   const forwarded = headers.get("x-forwarded-for");
-  if (forwarded) return (forwarded.split(",")[0] ?? forwarded).trim();
-  return headers.get("x-real-ip") ?? "unknown";
+  if (forwarded) {
+    const parts = forwarded.split(",").map((p) => p.trim()).filter(Boolean);
+    if (parts.length) return parts[parts.length - 1]; // last = closest trusted hop
+  }
+  return "unknown";
 }

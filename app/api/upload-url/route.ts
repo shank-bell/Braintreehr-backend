@@ -1,5 +1,4 @@
 // POST /api/upload-url — issue a short-lived signed upload URL for a résumé
-// Design doc §5.1, §6.1, §6.2
 import { NextRequest, NextResponse } from "next/server";
 import { uploadUrlSchema } from "@/lib/validation";
 import { createResumeUploadUrl } from "@/lib/storage";
@@ -30,7 +29,8 @@ export async function POST(req: NextRequest) {
   try {
     const { signedUrl, token, path } = await createResumeUploadUrl(
       parsed.data.fileName,
-      parsed.data.contentType
+      parsed.data.contentType,
+      ipHash
     );
     return NextResponse.json({ signedUrl, token, path });
   } catch (err) {
