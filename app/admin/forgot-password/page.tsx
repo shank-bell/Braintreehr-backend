@@ -30,7 +30,11 @@ export default function ForgotPasswordPage() {
     });
 
     if (resetError) {
-      setError("Something went wrong. Please try again.");
+      // Surface the real reason (rate limits, unauthorized address, etc.)
+      // instead of a generic message — the generic one made this
+      // impossible to diagnose. Revisit before this is public-facing if
+      // you'd rather not leak details to anonymous users.
+      setError(resetError.message);
       setStatus("idle");
       return;
     }

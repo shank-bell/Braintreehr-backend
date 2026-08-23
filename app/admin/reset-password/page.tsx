@@ -1,10 +1,10 @@
-// Reset password — the page the emailed link points to. Supabase parses
-// the recovery token out of the URL automatically and fires a
-// PASSWORD_RECOVERY auth event once a usable session exists; only then
-// do we let the user actually submit a new password.
+// Reset password — the page the emailed link points to.
+// Handles both PKCE (?code=) and legacy hash (#access_token=) styles,
+// uses ONE client instance for verify + update, and guards against
+// React Strict Mode double-invoking the single-use code exchange.
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase-browser";
 
 export default function ResetPasswordPage() {
@@ -12,21 +12,65 @@ export default function ResetPasswordPage() {
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [checking, setChecking] = useState(true);
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  // One client for the whole page — the session the exchange creates must
+  // still be there when handleSubmit runs.
+  const supabase = useMemo(() => createBrowserSupabaseClient(), []);
+  const exchanged = useRef(false);
+
   useEffect(() => {
-    const supabase = createBrowserSupabaseClient();
+    // Strict Mode runs effects twice in dev. The recovery code is
+    // single-use, so a second exchange would fail and clobber the session.
+    if (exchanged.current) return;
+    exchanged.current = true;
+
     const { data: listener } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") setReady(true);
+      if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") {
+        setReady(true);
+        setChecking(false);
+      }
     });
-    // Fallback in case the URL was already parsed (and the session already
-    // set) before this listener attached.
-    supabase.auth.getSession().then(({ data }) => {
+
+    (async () => {
+      const url = new URL(window.location.href);
+      const code = url.searchParams.get("code");
+      const errDesc =
+        url.searchParams.get("error_description") ||
+        new URLSearchParams(window.location.hash.slice(1)).get("error_description");
+
+      if (errDesc) {
+        setError(decodeURIComponent(errDesc));
+        setChecking(false);
+        return;
+      }
+
+      if (code) {
+        const { error: exErr } = await supabase.auth.exchangeCodeForSession(code);
+        if (exErr) {
+          setError(`Link couldn't be verified: ${exErr.message}`);
+          setChecking(false);
+          return;
+        }
+        // Tidy the URL so a refresh doesn't retry a spent code.
+        window.history.replaceState({}, "", window.location.pathname);
+        setReady(true);
+        setChecking(false);
+        return;
+      }
+
+      // Hash-style links (#access_token=...) are picked up automatically by
+      // the client; just confirm a session landed.
+      const { data } = await supabase.auth.getSession();
       if (data.session) setReady(true);
-    });
+      else setError("No valid reset link found. Request a new one.");
+      setChecking(false);
+    })();
+
     return () => listener.subscription.unsubscribe();
-  }, []);
+  }, [supabase]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -42,12 +86,12 @@ export default function ResetPasswordPage() {
     }
 
     setLoading(true);
-    const supabase = createBrowserSupabaseClient();
     const { error: updateError } = await supabase.auth.updateUser({ password });
     setLoading(false);
 
     if (updateError) {
-      setError("Could not update password — the reset link may have expired. Request a new one.");
+      // Show what actually went wrong instead of always blaming expiry.
+      setError(updateError.message);
       return;
     }
 
@@ -128,10 +172,19 @@ export default function ResetPasswordPage() {
           <p style={{ fontSize: 14, color: "#8B8CA3", lineHeight: 1.6 }}>
             Password updated — redirecting you to sign in…
           </p>
-        ) : !ready ? (
+        ) : checking ? (
           <p style={{ fontSize: 14, color: "#8B8CA3", lineHeight: 1.6 }}>
             Verifying your reset link…
           </p>
+        ) : !ready ? (
+          <>
+            <p style={{ color: "#F87171", fontSize: 14, marginBottom: 20, lineHeight: 1.6 }}>
+              {error || "This reset link isn't valid."}
+            </p>
+            <a href="/admin/forgot-password" style={{ fontSize: 13, color: "#8A7FE0" }}>
+              ← Request a new link
+            </a>
+          </>
         ) : (
           <>
             <p style={{ fontSize: 14, color: "#8B8CA3", marginBottom: 28, lineHeight: 1.5 }}>
