@@ -5,7 +5,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { createBrowserSupabaseClient } from "@/lib/supabase-browser";
+import { createRecoverySupabaseClient } from "@/lib/supabase-browser";
 
 // Hardcoded on purpose. This page only ever runs on the backend's own dev
 // server — never on the port Live Server serves SignIn.html from — but
@@ -24,7 +24,9 @@ export default function ForgotPasswordPage() {
     setError(null);
     setStatus("sending");
 
-    const supabase = createBrowserSupabaseClient();
+    // Must be the recovery client — the flow type at REQUEST time decides
+    // whether a PKCE challenge gets attached to the emailed link.
+    const supabase = createRecoverySupabaseClient();
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${SITE_URL}/admin/reset-password`,
     });

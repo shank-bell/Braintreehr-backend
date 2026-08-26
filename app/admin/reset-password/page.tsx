@@ -1,11 +1,11 @@
 // Reset password — the page the emailed link points to.
-// Handles both PKCE (?code=) and legacy hash (#access_token=) styles,
-// uses ONE client instance for verify + update, and guards against
-// React Strict Mode double-invoking the single-use code exchange.
+// Uses the implicit-flow recovery client, so the link carries its tokens
+// in the URL hash and works from any browser or device. ?code= handling
+// is kept only for links mailed before this change.
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
-import { createBrowserSupabaseClient } from "@/lib/supabase-browser";
+import { createRecoverySupabaseClient } from "@/lib/supabase-browser";
 
 export default function ResetPasswordPage() {
   const [password, setPassword] = useState("");
@@ -16,21 +16,22 @@ export default function ResetPasswordPage() {
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // One client for the whole page — the session the exchange creates must
-  // still be there when handleSubmit runs.
-  const supabase = useMemo(() => createBrowserSupabaseClient(), []);
-  const exchanged = useRef(false);
+  // One client for the whole page — the session created during
+  // verification must still be there when handleSubmit runs.
+  const supabase = useMemo(() => createRecoverySupabaseClient(), []);
+  const verified = useRef(false);
 
   useEffect(() => {
-    // Strict Mode runs effects twice in dev. The recovery code is
-    // single-use, so a second exchange would fail and clobber the session.
-    if (exchanged.current) return;
-    exchanged.current = true;
+    // Strict Mode runs effects twice in dev. Recovery tokens are
+    // single-use, so a second attempt would fail and clobber the session.
+    if (verified.current) return;
+    verified.current = true;
 
     const { data: listener } = supabase.auth.onAuthStateChange((event) => {
       if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") {
         setReady(true);
         setChecking(false);
+        setError(null);
       }
     });
 
@@ -47,26 +48,46 @@ export default function ResetPasswordPage() {
         return;
       }
 
+      // Legacy PKCE links, mailed before the implicit-flow switch. Only
+      // works in the browser that requested them.
       if (code) {
         const { error: exErr } = await supabase.auth.exchangeCodeForSession(code);
         if (exErr) {
-          setError(`Link couldn't be verified: ${exErr.message}`);
+          setError(
+            "This link was issued by an older version of the reset flow. Please request a new one."
+          );
           setChecking(false);
           return;
         }
-        // Tidy the URL so a refresh doesn't retry a spent code.
         window.history.replaceState({}, "", window.location.pathname);
         setReady(true);
+        setChecking(false);
+        setError(null);
+        return;
+      }
+
+      // Hash-style links (#access_token=...) — the normal path now. The
+      // client parses them automatically, but getSession() can race ahead
+      // of that parsing and return null on a perfectly valid link, so give
+      // it a moment; the listener above flips `ready` true when it lands.
+      const { data } = await supabase.auth.getSession();
+      if (data.session) {
+        setReady(true);
+        setError(null);
         setChecking(false);
         return;
       }
 
-      // Hash-style links (#access_token=...) are picked up automatically by
-      // the client; just confirm a session landed.
-      const { data } = await supabase.auth.getSession();
-      if (data.session) setReady(true);
-      else setError("No valid reset link found. Request a new one.");
-      setChecking(false);
+      setTimeout(async () => {
+        const { data: retry } = await supabase.auth.getSession();
+        if (retry.session) {
+          setReady(true);
+          setError(null);
+        } else {
+          setError("No valid reset link found. Request a new one.");
+        }
+        setChecking(false);
+      }, 700);
     })();
 
     return () => listener.subscription.unsubscribe();
@@ -90,7 +111,6 @@ export default function ResetPasswordPage() {
     setLoading(false);
 
     if (updateError) {
-      // Show what actually went wrong instead of always blaming expiry.
       setError(updateError.message);
       return;
     }

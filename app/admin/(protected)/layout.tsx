@@ -10,7 +10,12 @@ async function logout() {
   "use server";
   const supabase = await createServerSupabaseClient();
   await supabase.auth.signOut();
-  redirect("/admin/login");
+  const frontendOrigin = process.env.FRONTEND_ORIGIN || "http://127.0.0.1:5500";
+  // Live Server serves the whole BrainTreeHR-Complete folder locally, so
+  // Home.html sits under /frontend/ there — on Render the frontend repo
+  // IS the site root, so the same file is at the domain root in prod.
+  const isLocal = frontendOrigin.includes("127.0.0.1") || frontendOrigin.includes("localhost");
+  redirect(`${frontendOrigin}${isLocal ? "/frontend" : ""}/Home.html`);
 }
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createServerSupabaseClient();
