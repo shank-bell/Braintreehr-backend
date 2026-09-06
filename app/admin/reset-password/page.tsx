@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import { createRecoverySupabaseClient } from "@/lib/supabase-browser";
+import { SIGN_IN_URL } from "@/lib/site-urls";
 
 export default function ResetPasswordPage() {
   const [password, setPassword] = useState("");
@@ -117,7 +118,7 @@ export default function ResetPasswordPage() {
 
     setDone(true);
     setTimeout(() => {
-      window.location.href = "/admin/login";
+      window.location.href = SIGN_IN_URL;
     }, 2500);
   }
 
