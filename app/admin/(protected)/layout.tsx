@@ -1,21 +1,17 @@
-// NOTE: a custom /api/admin/login route now exists (added for the
-// SignIn.html cross-origin sign-in flow) — this contradicts the "no
-// custom login endpoint" comment in app/admin/login/page.tsx. That
-// comment is stale; Supabase still manages the session either way.
+// Staff sign-in lives on the marketing site (SignIn.html) and posts to
+// /api/admin/login, which sets the session cookie on THIS origin. This app
+// has no login page of its own — every unauthenticated path redirects out
+// to the public site instead.
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createServerSupabaseClient } from "@/lib/supabase";
+import { SIGN_IN_URL, HOME_URL } from "@/lib/site-urls";
 
 async function logout() {
   "use server";
   const supabase = await createServerSupabaseClient();
   await supabase.auth.signOut();
-  const frontendOrigin = process.env.FRONTEND_ORIGIN || "http://127.0.0.1:5500";
-  // Live Server serves the whole BrainTreeHR-Complete folder locally, so
-  // Home.html sits under /frontend/ there — on Render the frontend repo
-  // IS the site root, so the same file is at the domain root in prod.
-  const isLocal = frontendOrigin.includes("127.0.0.1") || frontendOrigin.includes("localhost");
-  redirect(`${frontendOrigin}${isLocal ? "/frontend" : ""}/Home.html`);
+  redirect(HOME_URL);
 }
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createServerSupabaseClient();
@@ -23,10 +19,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Login page lives inside /admin too but must render without a session —
-  // everything else under /admin requires one.
   if (!user) {
-    redirect("/admin/login");
+    redirect(SIGN_IN_URL);
   }
 
   const { data: profile } = await supabase
@@ -39,7 +33,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     // Valid Supabase session, but not a recognized staff account (§7.1) —
     // sign them out rather than leave them stuck on a page they can't use.
     await supabase.auth.signOut();
-    redirect("/admin/login");
+    redirect(SIGN_IN_URL);
   }
 
   return (
