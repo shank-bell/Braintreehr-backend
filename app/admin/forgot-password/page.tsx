@@ -1,17 +1,15 @@
 // Forgot password — sends a Supabase-issued reset link to the given email.
-// Lives outside app/admin/(protected)/ on purpose, same reason login does:
-// it must be reachable without a session.
+// Lives on the backend (not the marketing site) because it needs the
+// Supabase browser SDK; the "back to sign in" links point out to
+// SignIn.html, which is the only staff login.
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { createRecoverySupabaseClient } from "@/lib/supabase-browser";
+import { SIGN_IN_URL } from "@/lib/site-urls";
 
-// Hardcoded on purpose. This page only ever runs on the backend's own dev
-// server — never on the port Live Server serves SignIn.html from — but
-// window.location.origin still depends on whatever port the browser
-// happens to be on, which once caused a reset link to get mailed with a
-// stale port baked in. Update this to the real domain before deploying.
+// Hardcoded on purpose. This page only ever runs on the backend's own
+// server. Update to the real domain before deploying.
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 
 export default function ForgotPasswordPage() {
@@ -32,10 +30,6 @@ export default function ForgotPasswordPage() {
     });
 
     if (resetError) {
-      // Surface the real reason (rate limits, unauthorized address, etc.)
-      // instead of a generic message — the generic one made this
-      // impossible to diagnose. Revisit before this is public-facing if
-      // you'd rather not leak details to anonymous users.
       setError(resetError.message);
       setStatus("idle");
       return;
@@ -119,8 +113,9 @@ export default function ForgotPasswordPage() {
               If an account exists for that email, a reset link is on its way. Check your inbox
               (and spam folder) — use it soon, it expires after a while.
             </p>
-            <Link
-              href="/admin/login"
+            <a
+            
+              href={SIGN_IN_URL}
               style={{
                 fontSize: 13,
                 color: "#8A7FE0",
@@ -130,7 +125,7 @@ export default function ForgotPasswordPage() {
               }}
             >
               ← Back to sign in
-            </Link>
+            </a>
           </>
         ) : (
           <>
@@ -176,13 +171,12 @@ export default function ForgotPasswordPage() {
             >
               {status === "sending" ? "Sending…" : "Send reset link →"}
             </button>
-
-            <Link
-              href="/admin/login"
+            <a
+              href={SIGN_IN_URL}
               style={{ fontSize: 13, color: "#8B8CA3", display: "block", textAlign: "center" }}
             >
               ← Back to sign in
-            </Link>
+            </a>
           </>
         )}
       </form>
