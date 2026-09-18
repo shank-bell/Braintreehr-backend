@@ -1,16 +1,13 @@
-// NOTE: a custom /api/admin/login route now exists (added for the
-// SignIn.html cross-origin sign-in flow) — this contradicts the "no
-// custom login endpoint" comment in app/admin/login/page.tsx. That
-// comment is stale; Supabase still manages the session either way.
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createServerSupabaseClient } from "@/lib/supabase";
+import { SIGN_IN_URL, HOME_URL } from "@/lib/site-urls";
 
 async function logout() {
   "use server";
   const supabase = await createServerSupabaseClient();
   await supabase.auth.signOut();
-  redirect("/admin/login");
+  redirect(HOME_URL);
 }
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createServerSupabaseClient();
@@ -18,10 +15,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Login page lives inside /admin too but must render without a session —
-  // everything else under /admin requires one.
   if (!user) {
-    redirect("/admin/login");
+    redirect(SIGN_IN_URL);
   }
 
   const { data: profile } = await supabase
@@ -31,10 +26,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     .single();
 
   if (!profile) {
-    // Valid Supabase session, but not a recognized staff account (§7.1) —
-    // sign them out rather than leave them stuck on a page they can't use.
     await supabase.auth.signOut();
-    redirect("/admin/login");
+    redirect(SIGN_IN_URL);
   }
 
   return (

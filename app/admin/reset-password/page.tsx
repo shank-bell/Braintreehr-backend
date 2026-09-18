@@ -1,32 +1,84 @@
-// Reset password — the page the emailed link points to. Supabase parses
-// the recovery token out of the URL automatically and fires a
-// PASSWORD_RECOVERY auth event once a usable session exists; only then
-// do we let the user actually submit a new password.
 "use client";
 
-import { useState, useEffect } from "react";
-import { createBrowserSupabaseClient } from "@/lib/supabase-browser";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { createRecoverySupabaseClient } from "@/lib/supabase-browser";
+import { SIGN_IN_URL } from "@/lib/site-urls";
 
 export default function ResetPasswordPage() {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [checking, setChecking] = useState(true);
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  const supabase = useMemo(() => createRecoverySupabaseClient(), []);
+  const verified = useRef(false);
+
   useEffect(() => {
-    const supabase = createBrowserSupabaseClient();
+    if (verified.current) return;
+    verified.current = true;
+
     const { data: listener } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") setReady(true);
+      if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") {
+        setReady(true);
+        setChecking(false);
+        setError(null);
+      }
     });
-    // Fallback in case the URL was already parsed (and the session already
-    // set) before this listener attached.
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) setReady(true);
-    });
+
+    (async () => {
+      const url = new URL(window.location.href);
+      const code = url.searchParams.get("code");
+      const errDesc =
+        url.searchParams.get("error_description") ||
+        new URLSearchParams(window.location.hash.slice(1)).get("error_description");
+
+      if (errDesc) {
+        setError(decodeURIComponent(errDesc));
+        setChecking(false);
+        return;
+      }
+
+      if (code) {
+        const { error: exErr } = await supabase.auth.exchangeCodeForSession(code);
+        if (exErr) {
+          setError(
+            "This link was issued by an older version of the reset flow. Please request a new one."
+          );
+          setChecking(false);
+          return;
+        }
+        window.history.replaceState({}, "", window.location.pathname);
+        setReady(true);
+        setChecking(false);
+        setError(null);
+        return;
+      }
+
+      const { data } = await supabase.auth.getSession();
+      if (data.session) {
+        setReady(true);
+        setError(null);
+        setChecking(false);
+        return;
+      }
+
+      setTimeout(async () => {
+        const { data: retry } = await supabase.auth.getSession();
+        if (retry.session) {
+          setReady(true);
+          setError(null);
+        } else {
+          setError("No valid reset link found. Request a new one.");
+        }
+        setChecking(false);
+      }, 700);
+    })();
+
     return () => listener.subscription.unsubscribe();
-  }, []);
+  }, [supabase]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -42,18 +94,17 @@ export default function ResetPasswordPage() {
     }
 
     setLoading(true);
-    const supabase = createBrowserSupabaseClient();
     const { error: updateError } = await supabase.auth.updateUser({ password });
     setLoading(false);
 
     if (updateError) {
-      setError("Could not update password — the reset link may have expired. Request a new one.");
+      setError(updateError.message);
       return;
     }
 
     setDone(true);
     setTimeout(() => {
-      window.location.href = "/admin/login";
+      window.location.href = SIGN_IN_URL;
     }, 2500);
   }
 
@@ -128,10 +179,19 @@ export default function ResetPasswordPage() {
           <p style={{ fontSize: 14, color: "#8B8CA3", lineHeight: 1.6 }}>
             Password updated — redirecting you to sign in…
           </p>
-        ) : !ready ? (
+        ) : checking ? (
           <p style={{ fontSize: 14, color: "#8B8CA3", lineHeight: 1.6 }}>
             Verifying your reset link…
           </p>
+        ) : !ready ? (
+          <>
+            <p style={{ color: "#F87171", fontSize: 14, marginBottom: 20, lineHeight: 1.6 }}>
+              {error || "This reset link isn't valid."}
+            </p>
+            <a href="/admin/forgot-password" style={{ fontSize: 13, color: "#8A7FE0" }}>
+              ← Request a new link
+            </a>
+          </>
         ) : (
           <>
             <p style={{ fontSize: 14, color: "#8B8CA3", marginBottom: 28, lineHeight: 1.5 }}>
